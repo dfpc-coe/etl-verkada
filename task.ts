@@ -2,28 +2,23 @@ import { Static, Type, TSchema } from '@sinclair/typebox';
 import type { Event } from '@tak-ps/etl';
 import ETL, { SchemaType, handler as internal, local, InputFeature, InputFeatureCollection, DataFlowType, InvocationType } from '@tak-ps/etl';
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars --  Fetch with an additional Response.typed(TypeBox Object) definition
 import { fetch } from '@tak-ps/etl';
 
-/**
- * The Input Schema contains the environment object that will be requested via the CloudTAK UI
- * It should be a valid TypeBox object - https://github.com/sinclairzx81/typebox
- */
 const InputSchema = Type.Object({
-    'DEBUG': Type.Boolean({
+    API_KEY: Type.String({
+        description: 'API Token'
+    }),
+    DEBUG: Type.Boolean({
         default: false,
         description: 'Print results in logs'
     })
 });
 
-/**
- * The Output Schema contains the known properties that will be returned on the
- * GeoJSON Feature in the .properties.metdata object
- */
-const OutputSchema = Type.Object({})
+const OutputSchema = Type.Object({
+});
 
 export default class Task extends ETL {
-    static name = 'default'
+    static name = 'etl-verkada'
     static flow = [ DataFlowType.Incoming ];
     static invocation = [ InvocationType.Schedule ];
 
@@ -43,21 +38,45 @@ export default class Task extends ETL {
     }
 
     async control(): Promise<void> {
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Get the Environment from the Server and ensure it conforms to the schema
         const env = await this.env(InputSchema);
 
-        const features: Static<typeof InputFeature>[] = [];
+        const oauthReq = await fetch(`https://api.verkada.com/token`, {
+            method: 'POST',
+            headers: {
+                'x-api-key': env.API_KEY
+            }
+        })
 
-        // Get things here and convert them to GeoJSON Feature Collections
-        // That conform to the node-cot Feature properties spec
-        // https://github.com/dfpc-coe/node-CoT/
+        const { token } = await oauthReq.typed(Type.Object({
+            token: Type.String(),
+        }));
 
-        const fc: Static<typeof InputFeatureCollection> = {
-            type: 'FeatureCollection',
-            features: features
-        }
 
-        await this.submit(fc);
+        console.log('ok - requesting cameras');
+        const next_page = false;
+
+        do {
+            const devicesReq = await fetch(`https://{region}.verkada.com/cameras/v1/devices`, {
+                method: 'GET',
+                headers: {
+                    'x-verkada-auth': token
+                },
+            });
+
+            await devicesReq.typed(Type.Object({
+
+            }));
+
+            const features: Static<typeof InputFeature>[] = [];
+
+            const fc: Static<typeof InputFeatureCollection> = {
+                type: 'FeatureCollection',
+                features: features
+            }
+
+            await this.submit(fc);
+
+        } while (next_page)
     }
 }
 
