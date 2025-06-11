@@ -10,6 +10,10 @@
 
 ## Version History
 
+### v1.1.0
+
+- :tada: Sync Camera Locations
+
 ### v1.0.0
 
 - :rocket: Initial Approach

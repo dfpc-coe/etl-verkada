@@ -8,6 +8,14 @@ const InputSchema = Type.Object({
     API_KEY: Type.String({
         description: 'API Token'
     }),
+    API_Region: Type.String({
+        default: 'api',
+        enum: [
+            'api',
+            'api.eu',
+            'api.au'
+        ]
+    }),
     DEBUG: Type.Boolean({
         default: false,
         description: 'Print results in logs'
@@ -15,6 +23,28 @@ const InputSchema = Type.Object({
 });
 
 const OutputSchema = Type.Object({
+    "camera_id": Type.String(),
+    "cloud_retention": Type.Integer(),
+    "date_added": Type.Integer(),
+    "device_retention": Type.Union([Type.Null(), Type.Integer()]),
+    "firmware": Type.String(),
+    "firmware_update_schedule": Type.String(),
+    "last_online": Type.Integer(),
+    "local_ip": Type.Union([Type.Null(), Type.String()]),
+    "location": Type.String(),
+    "location_angle": Type.Number(),
+    "location_lat": Type.Number(),
+    "location_lon": Type.Number(),
+    "mac": Type.Union([Type.Null(), Type.String()]),
+    "model": Type.String(),
+    "name": Type.String(),
+    "people_history_enabled": Type.Boolean(),
+    "serial": Type.String(),
+    "site": Type.String(),
+    "site_id": Type.String(),
+    "status": Type.String(),
+    "timezone": Type.String(),
+    "vehicle_history_enabled": Type.Boolean()
 });
 
 export default class Task extends ETL {
@@ -40,7 +70,7 @@ export default class Task extends ETL {
     async control(): Promise<void> {
         const env = await this.env(InputSchema);
 
-        const oauthReq = await fetch(`https://api.verkada.com/token`, {
+        const oauthReq = await fetch(`https://${env.API_Region}.verkada.com/token`, {
             method: 'POST',
             headers: {
                 'x-api-key': env.API_KEY
@@ -52,31 +82,71 @@ export default class Task extends ETL {
         }));
 
 
-        console.log('ok - requesting cameras');
-        const next_page = false;
+        let next_page_token: number | undefined = undefined;
+
+        const features: Static<typeof InputFeature>[] = [];
 
         do {
-            const devicesReq = await fetch(`https://{region}.verkada.com/cameras/v1/devices`, {
+            console.log('ok - requesting cameras - ', next_page_token ? `page: ${next_page_token}` : "page: 1");
+            const devicesReqURL = new URL(`https://${env.API_Region}.verkada.com/cameras/v1/devices`)
+            if (next_page_token) devicesReqURL.searchParams.append('next_page_token', String(next_page_token));
+
+            const devicesReq = await fetch(devicesReqURL, {
                 method: 'GET',
                 headers: {
                     'x-verkada-auth': token
                 },
             });
 
-            await devicesReq.typed(Type.Object({
+            const res = await devicesReq.typed(Type.Object({
+                cameras: Type.Array(OutputSchema),
+                next_page_token: Type.Optional(Type.Integer())
+            }), { verbose: true } );
 
-            }));
-
-            const features: Static<typeof InputFeature>[] = [];
-
-            const fc: Static<typeof InputFeatureCollection> = {
-                type: 'FeatureCollection',
-                features: features
+            if (res.next_page_token !== next_page_token) {
+                next_page_token = res.next_page_token;
+            } else {
+                next_page_token = undefined;
             }
 
-            await this.submit(fc);
+            for (const camera of res.cameras) {
+                console.error(camera.location_angle);
 
-        } while (next_page)
+                const feat: Static<typeof InputFeature> = {
+                    id: camera.camera_id,
+                    type: 'Feature',
+                    properties: {
+                        type: 'b-m-p-s-p-loc',
+                        how: 'm-g',
+                        callsign: camera.name,
+                        course: camera.location_angle,
+                        sensor: {
+                            range: 50,
+                            azimuth: camera.location_angle,
+                            type: 'Verkada',
+                            model: camera.model
+                        },
+                        remarks: [
+                            ''
+                        ].join(','),
+                        metadata: camera
+                    },
+                    geometry: {
+                        type: 'Point',
+                        coordinates: [ camera.location_lon, camera.location_lat ]
+                    }
+                }
+
+                features.push(feat);
+            }
+        } while (next_page_token)
+
+        const fc: Static<typeof InputFeatureCollection> = {
+            type: 'FeatureCollection',
+            features: features
+        }
+
+        await this.submit(fc);
     }
 }
 
