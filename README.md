@@ -1,6 +1,13 @@
-<h1 align='center'>ETL-Template</h1>
+<h1 align='center'>ETL-Verkada</h1>
 
-<p align='center'>Template Repository for creating new ETLs</p>
+<p align='center'>Pull in Verkada Camera Locations & Streams</p>
+
+## Setup
+
+1. Contact the administrator of the Verkada management and follow the guide [here](https://apidocs.verkada.com/reference/quick-start-guide) to create a new API Key
+2. Ensure the `Cameras: Read`, & `Streaming - Live/Historical` Permissions are given for all sites.
+3. Set the expiration to be as long as possible otherwise the ETL will start to fail after the API Token expires
+4. Request a copy of the API Key shown to the admin after the "Generate API" button is clicked.
 
 ## Development
 
@@ -40,7 +47,7 @@ node dist/task.js
 
 Deployment into the CloudTAK environment for configuration is done via automatic releases to the DFPC AWS environment.
 
-Github actions will build and push docker releases on every version tag which can then be automatically configured via the 
+Github actions will build and push docker releases on every version tag which can then be automatically configured via the
 CloudTAK API.
 
 Non-DFPC users will need to setup their own docker => ECS build system via something like Github Actions or AWS Codebuild.
