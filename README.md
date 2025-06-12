@@ -4,6 +4,8 @@
 
 ## Development
 
+<details><summary>Development Information</summary>
+
 DFPC provided Lambda ETLs are currently all written in [NodeJS](https://nodejs.org/en) through the use of a AWS Lambda optimized
 Docker container. Documentation for the Dockerfile can be found in the [AWS Help Center](https://docs.aws.amazon.com/lambda/latest/dg/images-create.html)
 
@@ -42,4 +44,6 @@ Github actions will build and push docker releases on every version tag which ca
 CloudTAK API.
 
 Non-DFPC users will need to setup their own docker => ECS build system via something like Github Actions or AWS Codebuild.
+
+</details>
 
