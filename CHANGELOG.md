@@ -10,6 +10,10 @@
 
 ## Version History
 
+### v1.2.0
+
+- :tada: Begin wiring up Lease Creation
+
 ### v1.1.0
 
 - :tada: Sync Camera Locations
