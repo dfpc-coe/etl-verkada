@@ -10,6 +10,10 @@
 
 ## Version History
 
+### v1.5.0
+
+- :tada: Iterate over all leases
+
 ### v1.4.0
 
 - :tada: Wire up Camera Streams
