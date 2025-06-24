@@ -171,64 +171,72 @@ export default class Task extends ETL {
         }
 
         const streamableCameras: Set<string> = new Set();
-        for (const feature of features) {
-            const metadata = feature.properties.metadata as Static<typeof OutputSchema>;
 
-            if (
-                streamToken.accessibleSites.includes(metadata.site_id)
-                || streamToken.accessibleCameras.includes(metadata.camera_id)
-            ) {
-                streamableCameras.add(metadata.camera_id);
+        // Process 20 api calls at a time
 
-                 const proxyURL = new URL(`https://${env.API_Region}.verkada.com/stream/cameras/v1/footage/stream/key`);
-                 proxyURL.searchParams.append('start_time', '0');
-                 proxyURL.searchParams.append('end_time', '0');
-                 proxyURL.searchParams.append('codec', 'hevc');
-                 proxyURL.searchParams.append('resolution', 'low_res');
-                 proxyURL.searchParams.append('type', 'stream');
-                 proxyURL.searchParams.append('transcode', 'false');
+        for (let i = 0; i < features.length; i += 20) {
+            const batch = features.slice(i, i + 20);
 
-                 proxyURL.searchParams.append('jwt', streamToken.jwt);
-                 proxyURL.searchParams.append('camera_id', metadata.camera_id);
-                 proxyURL.searchParams.append('org_id', env.API_ORG_ID);
+            const promises = [];
+            promises.push(() => {
+                for (const feature of features) {
+                    const metadata = feature.properties.metadata as Static<typeof OutputSchema>;
 
-                console.error('STREAMING URL', String(proxyURL));
+                    if (
+                        streamToken.accessibleSites.includes(metadata.site_id)
+                        || streamToken.accessibleCameras.includes(metadata.camera_id)
+                    ) {
+                        streamableCameras.add(metadata.camera_id);
 
-                const existingLease = leaseMap.get(metadata.camera_id);
-                if (existingLease) {
-                    await this.fetch(`/api/connection/${this.layer.connection}/video/lease/${existingLease.id}`, {
-                        method: 'PATCH',
-                        body: {
-                            name: metadata.name,
-                            permanent: true,
-                            source_id: metadata.camera_id,
-                            source_type: 'fixed',
-                            source_model: `Verkada ${metadata.model}`,
-                            proxy: String(proxyURL),
+                         const proxyURL = new URL(`https://${env.API_Region}.verkada.com/stream/cameras/v1/footage/stream/stream.m3u8`);
+                         proxyURL.searchParams.append('start_time', '0');
+                         proxyURL.searchParams.append('end_time', '0');
+                         proxyURL.searchParams.append('codec', 'hevc');
+                         proxyURL.searchParams.append('resolution', 'high_res');
+                         proxyURL.searchParams.append('type', 'stream');
+                         proxyURL.searchParams.append('transcode', 'false');
+
+                         proxyURL.searchParams.append('jwt', streamToken.jwt);
+                         proxyURL.searchParams.append('camera_id', metadata.camera_id);
+                         proxyURL.searchParams.append('org_id', env.API_ORG_ID);
+
+                        const existingLease = leaseMap.get(metadata.camera_id);
+                        if (existingLease) {
+                            await this.fetch(`/api/connection/${this.layer.connection}/video/lease/${existingLease.id}`, {
+                                method: 'PATCH',
+                                body: {
+                                    name: metadata.name,
+                                    duration: 3600,
+                                    source_id: metadata.camera_id,
+                                    source_type: 'fixed',
+                                    source_model: `Verkada ${metadata.model}`,
+                                    proxy: String(proxyURL),
+                                }
+                            });
+                        } else {
+                            await this.fetch(`/api/connection/${this.layer.connection}/video/lease`, {
+                                method: 'POST',
+                                body: {
+                                    name: metadata.name,
+                                    duration: 3600,
+                                    source_id: metadata.camera_id,
+                                    source_type: 'fixed',
+                                    source_model: `Verkada ${metadata.model}`,
+                                    proxy: String(proxyURL),
+                                }
+                            });
                         }
-                    });
-                } else {
-                    await this.fetch(`/api/connection/${this.layer.connection}/video/lease`, {
-                        method: 'POST',
-                        body: {
-                            name: metadata.name,
-                            permanent: true,
-                            source_id: metadata.camera_id,
-                            source_type: 'fixed',
-                            source_model: `Verkada ${metadata.model}`,
-                            proxy: String(proxyURL),
-                        }
-                    });
+                    }
                 }
-            }
-        }
+            });
 
+            Promise.all(promises);
+        }
         const fc: Static<typeof InputFeatureCollection> = {
             type: 'FeatureCollection',
             features: features
         }
 
-        return;
         await this.submit(fc);
     }
 }
