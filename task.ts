@@ -188,32 +188,36 @@ export default class Task extends ETL {
                  proxyURL.searchParams.append('type', 'stream');
                  proxyURL.searchParams.append('transcode', 'false');
 
+                 proxyURL.searchParams.append('jwt', streamToken.jwt);
+                 proxyURL.searchParams.append('camera_id', metadata.camera_id);
+                 proxyURL.searchParams.append('org_id', env.API_ORG_ID);
+
                 console.error('STREAMING URL', String(proxyURL));
 
                 const existingLease = leaseMap.get(metadata.camera_id);
                 if (existingLease) {
                     await this.fetch(`/api/connection/${this.layer.connection}/video/lease/${existingLease.id}`, {
                         method: 'PATCH',
-                        body: JSON.stringify({
+                        body: {
                             name: metadata.name,
                             permanent: true,
                             source_id: metadata.camera_id,
-                            source_type: 'Verkada',
-                            source_model: metadata.model,
+                            source_type: 'fixed',
+                            source_model: `Verkada ${metadata.model}`,
                             proxy: String(proxyURL),
-                        })
+                        }
                     });
                 } else {
                     await this.fetch(`/api/connection/${this.layer.connection}/video/lease`, {
                         method: 'POST',
-                        body: JSON.stringify({
+                        body: {
                             name: metadata.name,
                             permanent: true,
                             source_id: metadata.camera_id,
-                            source_type: 'Verkada',
-                            source_model: metadata.model,
+                            source_type: 'fixed',
+                            source_model: `Verkada ${metadata.model}`,
                             proxy: String(proxyURL),
-                        })
+                        }
                     });
                 }
             }

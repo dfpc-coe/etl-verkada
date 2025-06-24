@@ -10,6 +10,10 @@
 
 ## Version History
 
+### v1.3.0
+
+- :tada: Begin wiring up Lease Creation
+
 ### v1.2.0
 
 - :tada: Begin wiring up Lease Creation
