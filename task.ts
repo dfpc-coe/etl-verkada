@@ -94,7 +94,21 @@ export default class Task extends ETL {
 
         const features: Static<typeof InputFeature>[] = [];
 
-        const leases = await this.fetch(`/api/connection/${this.layer.connection}/video/lease`) as LeaseList;
+
+        const leaseMap: Map<string, LeaseListItem> = new Map();
+
+        let leases: LeaseList;
+        let page = 0;
+        do {
+            leases = await this.fetch(`/api/connection/${this.layer.connection}/video/lease?limit=50&page=0`) as LeaseList;
+
+            for (const lease of leases.items) {
+                if (lease.layer === layer.id && lease.source_id) {
+                    leaseMap.set(lease.source_id, lease);
+                }
+            }
+            ++page;
+        } while (leases.total > 50 * page)
 
         const streamTokenReqURL = new URL(`https://${env.API_Region}.verkada.com/cameras/v1/footage/token`)
         const streamTokenReq = await fetch(streamTokenReqURL, {
@@ -162,14 +176,6 @@ export default class Task extends ETL {
                 features.push(feat);
             }
         } while (next_page_token)
-
-        const leaseMap: Map<string, LeaseListItem> = new Map();
-
-        for (const lease of leases.items) {
-            if (lease.layer === layer.id && lease.source_id) {
-                leaseMap.set(lease.source_id, lease);
-            }
-        }
 
         const streamableCameras: Set<string> = new Set();
 
