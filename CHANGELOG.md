@@ -10,6 +10,10 @@
 
 ## Version History
 
+### v1.4.0
+
+- :tada: Wire up Camera Streams
+
 ### v1.3.0
 
 - :tada: Begin wiring up Lease Creation

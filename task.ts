@@ -26,7 +26,8 @@ const InputSchema = Type.Object({
 });
 
 type LeaseList = APITypes.paths["/connection/{:connectionid}/video/lease"]["get"]["responses"]["200"]["content"]["application/json"];
-type Lease = LeaseList['items'][0];
+type LeaseListItem = APITypes.paths["/connection/{:connectionid}/video/lease"]["get"]["responses"]["200"]["content"]["application/json"]["items"][0];
+type Lease = APITypes.paths["/connection/{:connectionid}/video/lease/{:lease}"]["get"]["responses"]["200"]["content"]["application/json"];
 
 const OutputSchema = Type.Object({
     "camera_id": Type.String(),
@@ -162,7 +163,7 @@ export default class Task extends ETL {
             }
         } while (next_page_token)
 
-        const leaseMap: Map<string, Lease> = new Map();
+        const leaseMap: Map<string, LeaseListItem> = new Map();
 
         for (const lease of leases.items) {
             if (lease.layer === layer.id && lease.source_id) {
@@ -178,14 +179,15 @@ export default class Task extends ETL {
             const batch = features.slice(i, i + 20);
 
             const promises = [];
-            promises.push(() => {
-                for (const feature of features) {
-                    const metadata = feature.properties.metadata as Static<typeof OutputSchema>;
 
-                    if (
-                        streamToken.accessibleSites.includes(metadata.site_id)
-                        || streamToken.accessibleCameras.includes(metadata.camera_id)
-                    ) {
+            for (const feature of batch) {
+                const metadata = feature.properties.metadata as Static<typeof OutputSchema>;
+
+                if (
+                    streamToken.accessibleSites.includes(metadata.site_id)
+                    || streamToken.accessibleCameras.includes(metadata.camera_id)
+                ) {
+                    promises.push((async () => {
                         streamableCameras.add(metadata.camera_id);
 
                          const proxyURL = new URL(`https://${env.API_Region}.verkada.com/stream/cameras/v1/footage/stream/stream.m3u8`);
@@ -202,36 +204,56 @@ export default class Task extends ETL {
 
                         const existingLease = leaseMap.get(metadata.camera_id);
                         if (existingLease) {
-                            await this.fetch(`/api/connection/${this.layer.connection}/video/lease/${existingLease.id}`, {
+                            const lease = await this.fetch(`/api/connection/${this.layer.connection}/video/lease/${existingLease.id}`, {
                                 method: 'PATCH',
-                                body: {
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
                                     name: metadata.name,
                                     duration: 3600,
                                     source_id: metadata.camera_id,
                                     source_type: 'fixed',
                                     source_model: `Verkada ${metadata.model}`,
                                     proxy: String(proxyURL),
-                                }
-                            });
-                        } else {
-                            await this.fetch(`/api/connection/${this.layer.connection}/video/lease`, {
-                                method: 'POST',
-                                body: {
-                                    name: metadata.name,
-                                    duration: 3600,
-                                    source_id: metadata.camera_id,
-                                    source_type: 'fixed',
-                                    source_model: `Verkada ${metadata.model}`,
-                                    proxy: String(proxyURL),
-                                }
-                            });
-                        }
-                    }
-                }
-            });
+                                })
+                            }) as Lease;
 
-            Promise.all(promises);
+                            if (lease && lease.protocols && lease.protocols.hls) {
+                                feature.properties.video = {
+                                    url: lease.protocols.hls.url
+                                }
+                            }
+                        } else {
+                            const lease = await this.fetch(`/api/connection/${this.layer.connection}/video/lease`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                    name: metadata.name,
+                                    duration: 3600,
+                                    source_id: metadata.camera_id,
+                                    source_type: 'fixed',
+                                    source_model: `Verkada ${metadata.model}`,
+                                    proxy: String(proxyURL),
+                                })
+                            }) as Lease;
+
+                            if (lease && lease.protocols && lease.protocols.hls) {
+                                feature.properties.video = {
+                                    url: lease.protocols.hls.url
+                                }
+                            }
+                        }
+                    })());
+                }
+            }
+
+            // TODO Surface errors in the promises
+            await Promise.allSettled(promises);
         }
+
         const fc: Static<typeof InputFeatureCollection> = {
             type: 'FeatureCollection',
             features: features
