@@ -10,6 +10,10 @@
 
 ## Version History
 
+### v1.6.0
+
+- :tada: Fix Page Load
+
 ### v1.5.0
 
 - :tada: Iterate over all leases

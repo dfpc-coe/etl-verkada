@@ -100,7 +100,7 @@ export default class Task extends ETL {
         let leases: LeaseList;
         let page = 0;
         do {
-            leases = await this.fetch(`/api/connection/${this.layer.connection}/video/lease?limit=50&page=0`) as LeaseList;
+            leases = await this.fetch(`/api/connection/${this.layer.connection}/video/lease?limit=50&page=${page}`) as LeaseList;
 
             for (const lease of leases.items) {
                 if (lease.layer === layer.id && lease.source_id) {
@@ -180,7 +180,6 @@ export default class Task extends ETL {
         const streamableCameras: Set<string> = new Set();
 
         // Process 20 api calls at a time
-
         for (let i = 0; i < features.length; i += 20) {
             const batch = features.slice(i, i + 20);
 
