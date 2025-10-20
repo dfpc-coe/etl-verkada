@@ -1,6 +1,7 @@
 import { Static, Type, TSchema } from '@sinclair/typebox';
 import type { Event, APITypes } from '@tak-ps/etl';
-import ETL, { SchemaType, handler as internal, local, InputFeature, InputFeatureCollection, DataFlowType, InvocationType } from '@tak-ps/etl';
+import { Feature } from '@tak-ps/node-cot';
+import ETL, { SchemaType, handler as internal, local, DataFlowType, InvocationType } from '@tak-ps/etl';
 
 import { fetch } from '@tak-ps/etl';
 
@@ -92,7 +93,7 @@ export default class Task extends ETL {
 
         let next_page_token: number | undefined = undefined;
 
-        const features: Static<typeof InputFeature>[] = [];
+        const features: Static<typeof Feature.InputFeature>[] = [];
 
 
         const leaseMap: Map<string, LeaseListItem> = new Map();
@@ -148,7 +149,7 @@ export default class Task extends ETL {
             }
 
             for (const camera of res.cameras) {
-                const feat: Static<typeof InputFeature> = {
+                const feat: Static<typeof Feature.InputFeature> = {
                     id: camera.camera_id,
                     type: 'Feature',
                     properties: {
@@ -259,7 +260,7 @@ export default class Task extends ETL {
             await Promise.allSettled(promises);
         }
 
-        const fc: Static<typeof InputFeatureCollection> = {
+        const fc: Static<typeof Feature.InputFeatureCollection> = {
             type: 'FeatureCollection',
             features: features
         }
