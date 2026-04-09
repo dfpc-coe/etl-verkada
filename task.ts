@@ -1,5 +1,5 @@
 import { Static, Type, TSchema } from '@sinclair/typebox';
-import type { Event, APITypes } from '@tak-ps/etl';
+import type { Event } from '@tak-ps/etl';
 import { Feature } from '@tak-ps/node-cot';
 import ETL, { SchemaType, handler as internal, local, DataFlowType, InvocationType } from '@tak-ps/etl';
 
@@ -26,9 +26,24 @@ const InputSchema = Type.Object({
     })
 });
 
-type LeaseList = APITypes.paths["/connection/{:connectionid}/video/lease"]["get"]["responses"]["200"]["content"]["application/json"];
-type LeaseListItem = APITypes.paths["/connection/{:connectionid}/video/lease"]["get"]["responses"]["200"]["content"]["application/json"]["items"][0];
-type Lease = APITypes.paths["/connection/{:connectionid}/video/lease/{:lease}"]["get"]["responses"]["200"]["content"]["application/json"];
+type LeaseListItem = {
+    id: string;
+    layer?: string;
+    source_id?: string;
+};
+
+type LeaseList = {
+    items: LeaseListItem[];
+    total: number;
+};
+
+type Lease = {
+    protocols?: {
+        hls?: {
+            url: string;
+        };
+    };
+};
 
 const OutputSchema = Type.Object({
     camera_id: Type.String(),
@@ -101,10 +116,10 @@ export default class Task extends ETL {
         let leases: LeaseList;
         let page = 0;
         do {
-            leases = await this.fetch(`/api/connection/${this.layer.connection}/video/lease?limit=50&page=${page}`) as LeaseList;
+            leases = await this.fetch(`/api/connection/${layer.connection}/video/lease?limit=50&page=${page}`) as LeaseList;
 
             for (const lease of leases.items) {
-                if (lease.layer === layer.id && lease.source_id) {
+                if (lease.layer === String(layer.id) && lease.source_id) {
                     leaseMap.set(lease.source_id, lease);
                 }
             }
@@ -210,7 +225,7 @@ export default class Task extends ETL {
 
                         const existingLease = leaseMap.get(metadata.camera_id);
                         if (existingLease) {
-                            const lease = await this.fetch(`/api/connection/${this.layer.connection}/video/lease/${existingLease.id}`, {
+                            const lease = await this.fetch(`/api/connection/${layer.connection}/video/lease/${existingLease.id}`, {
                                 method: 'PATCH',
                                 headers: {
                                     'Content-Type': 'application/json',
@@ -231,7 +246,7 @@ export default class Task extends ETL {
                                 }
                             }
                         } else {
-                            const lease = await this.fetch(`/api/connection/${this.layer.connection}/video/lease`, {
+                            const lease = await this.fetch(`/api/connection/${layer.connection}/video/lease`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
