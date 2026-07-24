@@ -10,6 +10,11 @@
 
 ## Version History
 
+### v1.17.0
+
+- :bug: Fix schema validation on last page of verkada results
+- :bug: Ensure duplicate leases are not created when syncing camera locations
+
 ### v1.16.0
 
 - :arrow_up: Update Core Dependencies

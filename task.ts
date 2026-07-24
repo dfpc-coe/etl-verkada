@@ -28,7 +28,7 @@ const InputSchema = Type.Object({
 
 type LeaseListItem = {
     id: string;
-    layer?: string;
+    layer?: number;
     source_id?: string;
 };
 
@@ -106,7 +106,7 @@ export default class Task extends ETL {
         }));
 
 
-        let next_page_token: number | undefined = undefined;
+        let next_page_token: string | undefined = undefined;
 
         const features: Static<typeof Feature.InputFeature>[] = [];
 
@@ -119,7 +119,7 @@ export default class Task extends ETL {
             leases = await this.fetch(`/api/connection/${layer.connection}/video/lease?limit=50&page=${page}`) as LeaseList;
 
             for (const lease of leases.items) {
-                if (lease.layer === String(layer.id) && lease.source_id) {
+                if (lease.layer === layer.id && lease.source_id) {
                     leaseMap.set(lease.source_id, lease);
                 }
             }
@@ -154,10 +154,12 @@ export default class Task extends ETL {
 
             const res = await devicesReq.typed(Type.Object({
                 cameras: Type.Array(OutputSchema),
-                next_page_token: Type.Optional(Type.Integer())
+                next_page_token: Type.Optional(Type.Union([Type.Null(), Type.String()]))
             }), { verbose: true } );
 
-            if (res.next_page_token !== next_page_token) {
+            // Verkada returns next_page_token as a string ("2", "3", ...) and null/absent on the final page.
+            // Only continue paging while the token advances; otherwise stop to avoid an infinite loop.
+            if (res.next_page_token && res.next_page_token !== next_page_token) {
                 next_page_token = res.next_page_token;
             } else {
                 next_page_token = undefined;
