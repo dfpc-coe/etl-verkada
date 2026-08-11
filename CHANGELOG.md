@@ -10,6 +10,11 @@
 
 ## Version History
 
+### v1.18.0
+
+- :rocket: Add Capabilities document
+- :arrow_up: Update GH Actions
+
 ### v1.17.0
 
 - :bug: Fix schema validation on last page of verkada results
