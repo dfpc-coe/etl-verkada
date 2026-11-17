@@ -1,4 +1,5 @@
 import { Static, Type, TSchema } from '@sinclair/typebox';
+import { Value } from '@sinclair/typebox/value';
 import type { Event } from '@tak-ps/etl';
 import { Feature } from '@tak-ps/node-cot';
 import ETL, { SchemaType, handler as internal, local, DataFlowType, InvocationType } from '@tak-ps/etl';
@@ -26,24 +27,24 @@ const InputSchema = Type.Object({
     })
 });
 
-type LeaseListItem = {
-    id: string;
-    layer?: number;
-    source_id?: string;
-};
+const LeaseListItem = Type.Object({
+    id: Type.Union([Type.Number(), Type.String()]),
+    layer: Type.Optional(Type.Union([Type.Null(), Type.Number()])),
+    source_id: Type.Optional(Type.Union([Type.Null(), Type.String()]))
+});
 
-type LeaseList = {
-    items: LeaseListItem[];
-    total: number;
-};
+const LeaseList = Type.Object({
+    items: Type.Array(LeaseListItem),
+    total: Type.Number()
+});
 
-type Lease = {
-    protocols?: {
-        hls?: {
-            url: string;
-        };
-    };
-};
+const HLSLease = Type.Object({
+    protocols: Type.Object({
+        hls: Type.Object({
+            url: Type.String()
+        })
+    })
+});
 
 const OutputSchema = Type.Object({
     camera_id: Type.String(),
@@ -79,15 +80,9 @@ export default class Task extends ETL {
         type: SchemaType = SchemaType.Input,
         flow: DataFlowType = DataFlowType.Incoming
     ): Promise<TSchema> {
-        if (flow === DataFlowType.Incoming) {
-            if (type === SchemaType.Input) {
-                return InputSchema;
-            } else {
-                return OutputSchema;
-            }
-        } else {
-            return Type.Object({});
-        }
+        if (flow !== DataFlowType.Incoming) return Type.Object({});
+
+        return type === SchemaType.Input ? InputSchema : OutputSchema;
     }
 
     async control(): Promise<void> {
@@ -109,14 +104,19 @@ export default class Task extends ETL {
         let next_page_token: string | undefined = undefined;
 
         const features: Static<typeof Feature.InputFeature>[] = [];
+        const cameras: Array<{
+            camera: Static<typeof OutputSchema>,
+            feature: Static<typeof Feature.InputFeature>
+        }> = [];
 
+        const leaseMap: Map<string, Static<typeof LeaseListItem>> = new Map();
 
-        const leaseMap: Map<string, LeaseListItem> = new Map();
-
-        let leases: LeaseList;
+        let leases: Static<typeof LeaseList>;
         let page = 0;
         do {
-            leases = await this.fetch(`/api/connection/${layer.connection}/video/lease?limit=50&page=${page}`) as LeaseList;
+            const body: unknown = await this.fetch(`/api/connection/${layer.connection}/video/lease?limit=50&page=${page}`);
+            if (!Value.Check(LeaseList, body)) throw new Error('Unexpected Video Lease List response');
+            leases = body;
 
             for (const lease of leases.items) {
                 if (lease.layer === layer.id && lease.source_id) {
@@ -143,7 +143,7 @@ export default class Task extends ETL {
         do {
             console.log('ok - requesting cameras - ', next_page_token ? `page: ${next_page_token}` : "page: 1");
             const devicesReqURL = new URL(`https://${env.API_Region}.verkada.com/cameras/v1/devices`)
-            if (next_page_token) devicesReqURL.searchParams.append('next_page_token', String(next_page_token));
+            if (next_page_token) devicesReqURL.searchParams.append('next_page_token', next_page_token);
 
             const devicesReq = await fetch(devicesReqURL, {
                 method: 'GET',
@@ -192,88 +192,68 @@ export default class Task extends ETL {
                 }
 
                 features.push(feat);
+                cameras.push({ camera, feature: feat });
             }
         } while (next_page_token)
 
         const streamableCameras: Set<string> = new Set();
 
         // Process 20 api calls at a time
-        for (let i = 0; i < features.length; i += 20) {
-            const batch = features.slice(i, i + 20);
+        for (let i = 0; i < cameras.length; i += 20) {
+            const batch = cameras.slice(i, i + 20);
 
             const promises = [];
 
-            for (const feature of batch) {
-                const metadata = feature.properties.metadata as Static<typeof OutputSchema>;
-
+            for (const { camera, feature } of batch) {
                 if (
-                    streamToken.accessibleSites.includes(metadata.site_id)
-                    || streamToken.accessibleCameras.includes(metadata.camera_id)
+                    streamToken.accessibleSites.includes(camera.site_id)
+                    || streamToken.accessibleCameras.includes(camera.camera_id)
                 ) {
                     promises.push((async () => {
-                        streamableCameras.add(metadata.camera_id);
+                        streamableCameras.add(camera.camera_id);
 
-                         const proxyURL = new URL(`https://${env.API_Region}.verkada.com/stream/cameras/v1/footage/stream/stream.m3u8`);
-                         proxyURL.searchParams.append('start_time', '0');
-                         proxyURL.searchParams.append('end_time', '0');
-                         proxyURL.searchParams.append('codec', 'hevc');
-                         proxyURL.searchParams.append('resolution', 'high_res');
-                         proxyURL.searchParams.append('type', 'stream');
-                         proxyURL.searchParams.append('transcode', 'false');
+                        const proxyURL = new URL(`https://${env.API_Region}.verkada.com/stream/cameras/v1/footage/stream/stream.m3u8`);
+                        proxyURL.searchParams.append('start_time', '0');
+                        proxyURL.searchParams.append('end_time', '0');
+                        proxyURL.searchParams.append('codec', 'hevc');
+                        proxyURL.searchParams.append('resolution', 'high_res');
+                        proxyURL.searchParams.append('type', 'stream');
+                        proxyURL.searchParams.append('transcode', 'false');
 
-                         proxyURL.searchParams.append('jwt', streamToken.jwt);
-                         proxyURL.searchParams.append('camera_id', metadata.camera_id);
-                         proxyURL.searchParams.append('org_id', env.API_ORG_ID);
+                        proxyURL.searchParams.append('jwt', streamToken.jwt);
+                        proxyURL.searchParams.append('camera_id', camera.camera_id);
+                        proxyURL.searchParams.append('org_id', env.API_ORG_ID);
 
-                        const existingLease = leaseMap.get(metadata.camera_id);
-                        if (existingLease) {
-                            const lease = await this.fetch(`/api/connection/${layer.connection}/video/lease/${existingLease.id}`, {
-                                method: 'PATCH',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify({
-                                    name: metadata.name,
-                                    duration: 3600,
-                                    source_id: metadata.camera_id,
-                                    source_type: 'fixed',
-                                    source_model: `Verkada ${metadata.model}`,
-                                    proxy: String(proxyURL),
-                                })
-                            }) as Lease;
+                        const existingLease = leaseMap.get(camera.camera_id);
+                        const leaseURL = existingLease
+                            ? `/api/connection/${layer.connection}/video/lease/${existingLease.id}`
+                            : `/api/connection/${layer.connection}/video/lease`;
 
-                            if (lease && lease.protocols && lease.protocols.hls) {
-                                feature.properties.video = {
-                                    url: lease.protocols.hls.url
-                                }
-                            }
-                        } else {
-                            const lease = await this.fetch(`/api/connection/${layer.connection}/video/lease`, {
-                                method: 'POST',
-                                headers: {
-                                    'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify({
-                                    name: metadata.name,
-                                    duration: 3600,
-                                    source_id: metadata.camera_id,
-                                    source_type: 'fixed',
-                                    source_model: `Verkada ${metadata.model}`,
-                                    proxy: String(proxyURL),
-                                })
-                            }) as Lease;
+                        const lease: unknown = await this.fetch(leaseURL, {
+                            method: existingLease ? 'PATCH' : 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                name: camera.name,
+                                duration: 3600,
+                                source_id: camera.camera_id,
+                                source_type: 'fixed',
+                                source_model: `Verkada ${camera.model}`,
+                                proxy: String(proxyURL),
+                            })
+                        });
 
-                            if (lease && lease.protocols && lease.protocols.hls) {
-                                feature.properties.video = {
-                                    url: lease.protocols.hls.url
-                                }
+                        if (Value.Check(HLSLease, lease)) {
+                            feature.properties.video = {
+                                url: lease.protocols.hls.url
                             }
                         }
                     })());
                 }
             }
 
-            // TODO Surface errors in the promises
+            // Errors in the promises are not surfaced
             await Promise.allSettled(promises);
         }
 
@@ -287,7 +267,7 @@ export default class Task extends ETL {
 }
 
 await local(await Task.init(import.meta.url), import.meta.url);
-export async function handler(event: Event = {}) {
-    return await internal(await Task.init(import.meta.url), event);
+export async function handler(event: Event = {}): ReturnType<typeof internal> {
+    return internal(await Task.init(import.meta.url), event);
 }
 
